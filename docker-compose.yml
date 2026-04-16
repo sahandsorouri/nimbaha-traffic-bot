@@ -1,0 +1,13 @@
+services:
+  bot:
+    build: .
+    image: nimbaha-bot
+    restart: always
+    env_file: .env
+    volumes:
+      - ./data:/app/data   # SQLite DB persists across restarts/updates
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
