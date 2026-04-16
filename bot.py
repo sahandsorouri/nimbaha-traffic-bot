@@ -395,7 +395,7 @@ def main() -> None:
     if not token:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set in .env")
 
-    asyncio.get_event_loop().run_until_complete(db.init_db())
+    asyncio.run(db.init_db())
 
     app = Application.builder().token(token).build()
 
