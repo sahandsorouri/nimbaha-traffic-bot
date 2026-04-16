@@ -14,7 +14,6 @@ Commands
 """
 
 import asyncio
-import json
 import logging
 import os
 from datetime import time as dt_time
@@ -35,7 +34,7 @@ from telegram.ext import (
 
 import auth
 import database as db
-from scraper import LoginError, fetch_traffic
+from scraper import LoginError, fetch_daily_usage, fetch_traffic
 
 load_dotenv()
 
@@ -61,11 +60,12 @@ def _traffic_message(info) -> str:
     icon = "🔴" if info.is_zero else "🟢"
     return (
         f"📊 *گزارش حجم*\n\n"
-        f"🔑 سرویس       : `{info.service_number}`\n"
+        f"🔑 سرویس          : `{info.service_number}`\n"
         f"{icon} باقی‌مانده  : *{info.remaining}*\n"
-        f"📦 کل حجم      : {info.total}\n"
-        f"📉 مصرف شده    : {info.used}\n"
-        f"📅 تاریخ انقضا : {info.expiry}"
+        f"📦 کل حجم         : {info.total}\n"
+        f"📉 مصرف شده       : {info.used}\n"
+        f"📅 انقضا          : {info.expiry}\n"
+        f"⏳ روزهای باقی‌مانده : {info.days_left} روز"
     )
 
 
@@ -85,11 +85,11 @@ async def _fetch_for_user(telegram_id: int, context: ContextTypes.DEFAULT_TYPE):
     username = auth.decrypt(enc_user)
     password = auth.decrypt(enc_pass)
 
-    enc_session = await db.get_session(telegram_id)
-    cached_cookies = auth.decrypt(enc_session) if enc_session else None
+    enc_session  = await db.get_session(telegram_id)
+    cached_token = auth.decrypt(enc_session) if enc_session else None
 
     try:
-        info = await fetch_traffic(username, password, cached_cookies)
+        info = await fetch_traffic(username, password, cached_token)
     except LoginError as e:
         await db.clear_session(telegram_id)
         await context.bot.send_message(
@@ -105,10 +105,9 @@ async def _fetch_for_user(telegram_id: int, context: ContextTypes.DEFAULT_TYPE):
         )
         return None
 
-    if info.session_cookies:
+    if info.auth_token:
         try:
-            enc_new = auth.encrypt(json.dumps(info.session_cookies))
-            await db.set_session(telegram_id, enc_new)
+            await db.set_session(telegram_id, auth.encrypt(info.auth_token))
         except Exception:
             pass
 
@@ -298,21 +297,35 @@ async def cmd_yesterday(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("ابتدا با /setcredentials اطلاعات ورود را ثبت کنید.")
         return
 
-    result = await db.get_yesterday_usage(telegram_id)
-    if not result:
+    enc_session = await db.get_session(telegram_id)
+    if not enc_session:
         await update.message.reply_text(
-            "هنوز داده‌ای برای دیروز وجود ندارد.\n\n"
-            "بات هر بار که /check می‌زنید یا اطلاع‌رسانی روزانه ارسال می‌شود یک snapshot ذخیره می‌کند. "
-            "امروز چند بار /check بزنید — فردا مصرف دیروز نمایش داده می‌شود."
+            "ابتدا یک بار /check بزنید تا توکن ذخیره شود، سپس دوباره امتحان کنید."
         )
         return
 
-    used_start, used_end = result
-    await update.message.reply_text(
-        f"📅 *مصرف دیروز*\n\n"
-        f"ابتدای روز : {used_start}\n"
-        f"انتهای روز : {used_end}\n\n"
-        f"_(مصرف واقعی = تفاوت بین دو عدد)_",
+    token = auth.decrypt(enc_session)
+    msg   = await update.message.reply_text("⏳ در حال دریافت اطلاعات مصرف...")
+
+    try:
+        days = await fetch_daily_usage(token)
+    except Exception as e:
+        await msg.edit_text(f"⚠️ خطا در دریافت اطلاعات: {e}")
+        return
+
+    if len(days) < 2:
+        await msg.edit_text(
+            "هنوز اطلاعات کافی برای دیروز وجود ندارد.\n"
+            "معمولاً بعد از ۲۴ ساعت استفاده از سرویس نمایش داده می‌شود."
+        )
+        return
+
+    yesterday = days[1]   # index 0 = today, index 1 = yesterday
+    await msg.edit_text(
+        f"📅 *مصرف دیروز* ({yesterday.date})\n\n"
+        f"📥 دانلود  : {yesterday.download}\n"
+        f"📤 آپلود   : {yesterday.upload}\n"
+        f"📊 کل مصرف : *{yesterday.consume}*",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -365,10 +378,16 @@ async def daily_push(context: ContextTypes.DEFAULT_TYPE) -> None:
 
         text = _traffic_message(info)
 
-        result = await db.get_yesterday_usage(telegram_id)
-        if result:
-            used_start, used_end = result
-            text += f"\n\n📅 *مصرف دیروز*\nابتدا: {used_start} ← انتها: {used_end}"
+        try:
+            days = await fetch_daily_usage(info.auth_token)
+            if len(days) >= 2:
+                y = days[1]
+                text += (
+                    f"\n\n📅 *مصرف دیروز* ({y.date})\n"
+                    f"📥 {y.download}  📤 {y.upload}  📊 *{y.consume}*"
+                )
+        except Exception:
+            pass
 
         try:
             if info.is_zero:
