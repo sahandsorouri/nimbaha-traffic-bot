@@ -49,21 +49,37 @@ ASK_USERNAME, ASK_PASSWORD = range(2)
 
 CB_REMOVE_YES = "remove_yes"
 CB_REMOVE_NO  = "remove_no"
+CB_SUBSCRIBE  = "subscribe_now"
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _progress_bar(remaining: str, total: str) -> str:
+    """Return a 10-block bar like ██████░░░░ 60%"""
+    from scraper import _to_bytes
+    r = _to_bytes(remaining)
+    t = _to_bytes(total)
+    if not r or not t or t == 0:
+        return ""
+    pct   = max(0.0, min(100.0, (r / t) * 100))
+    filled = round(pct / 10)
+    bar   = "█" * filled + "░" * (10 - filled)
+    return f"`{bar}` {pct:.0f}%"
+
+
 def _traffic_message(info) -> str:
-    icon = "🔴" if info.is_zero else "🟢"
+    icon  = "🔴" if info.is_zero else "🟢"
+    bar   = _progress_bar(info.remaining, info.total)
+    bar_line = f"\n{bar}" if bar else ""
     return (
         f"📊 *گزارش حجم*\n\n"
-        f"🔑 سرویس          : `{info.service_number}`\n"
-        f"{icon} باقی‌مانده  : *{info.remaining}*\n"
-        f"📦 کل حجم         : {info.total}\n"
-        f"📉 مصرف شده       : {info.used}\n"
-        f"📅 انقضا          : {info.expiry}\n"
+        f"🔑 سرویس : `{info.service_number}`\n\n"
+        f"{icon} *باقی‌مانده : {info.remaining}*{bar_line}\n\n"
+        f"📦 کل حجم          : {info.total}\n"
+        f"📉 مصرف شده        : {info.used}\n"
+        f"📅 انقضا           : {info.expiry}\n"
         f"⏳ روزهای باقی‌مانده : {info.days_left} روز"
     )
 
@@ -72,6 +88,13 @@ def _zero_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("🗑️ بله، حذف کن", callback_data=CB_REMOVE_YES),
         InlineKeyboardButton("❌ نه، نگه‌دار",  callback_data=CB_REMOVE_NO),
+    ]])
+
+
+def _subscribe_keyboard() -> InlineKeyboardMarkup:
+    """Shown at the bottom of /check when user is not subscribed."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔔 دریافت روزانه ساعت ۲۱", callback_data=CB_SUBSCRIBE),
     ]])
 
 
@@ -224,12 +247,28 @@ async def got_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     telegram_id = update.effective_user.id
     await db.upsert_user(telegram_id, auth.encrypt(username), auth.encrypt(password))
 
-    await update.message.reply_text(
-        "✅ *اطلاعات ذخیره و رمزنگاری شد.*\n\n"
-        "رمز عبور خام شما دیگر در حافظه نیست.\n"
-        "برای تأیید، /check را بزنید.",
-        parse_mode=ParseMode.MARKDOWN,
+    checking_msg = await update.message.reply_text(
+        "✅ اطلاعات ذخیره شد.\n\n⏳ در حال اتصال و بررسی حجم سرویس شما...",
     )
+
+    # Auto-run a check so user sees it works immediately
+    info = await _fetch_for_user(telegram_id, context)
+    if not info:
+        await checking_msg.edit_text(
+            "✅ اطلاعات ذخیره شد.\n\n"
+            "⚠️ بررسی اولیه ناموفق بود — اطلاعات ورود را با /setcredentials دوباره بررسی کنید."
+        )
+        return ConversationHandler.END
+
+    text = _traffic_message(info)
+
+    if info.is_zero:
+        text += "\n\n⚠️ *این سرویس حجمی ندارد!*\nمی‌خواهید آن را حذف کنید؟"
+        await checking_msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_zero_keyboard())
+    else:
+        text += "\n\n🔔 می‌خواهید هر روز ساعت ۲۱ گزارش خودکار دریافت کنید؟"
+        await checking_msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_subscribe_keyboard())
+
     return ConversationHandler.END
 
 
@@ -247,20 +286,29 @@ async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_id = update.effective_user.id
     if not await db.get_user(telegram_id):
         await update.message.reply_text(
-            "⚠️ هنوز اطلاعات ورود ثبت نکرده‌اید.\nبا /setcredentials شروع کنید."
+            "⚠️ هنوز اطلاعات ورود ثبت نکرده‌اید.\n\n"
+            "👉 با /setcredentials شروع کنید — فقط ۳۰ ثانیه طول می‌کشد."
         )
         return
 
-    msg = await update.message.reply_text("⏳ در حال بررسی حجم...")
+    msg  = await update.message.reply_text("⏳ در حال بررسی حجم...")
     info = await _fetch_for_user(telegram_id, context)
     if not info:
         await msg.delete()
         return
 
     text = _traffic_message(info)
+
     if info.is_zero:
         text += "\n\n⚠️ *این سرویس حجمی ندارد!*\nمی‌خواهید آن را از بات حذف کنید؟"
         await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_zero_keyboard())
+        return
+
+    # Offer daily subscription if not already subscribed
+    subscribed_ids = await db.get_subscribed_users()
+    if telegram_id not in subscribed_ids:
+        text += "\n\n🔔 برای گزارش خودکار روزانه دکمه زیر را بزنید:"
+        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_subscribe_keyboard())
     else:
         await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN)
 
@@ -284,6 +332,21 @@ async def cb_remove_no(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await query.answer()
     await query.edit_message_reply_markup(reply_markup=None)
     await query.message.reply_text("باشه، سرویس نگه داشته شد. بعداً با /forget می‌توانید حذف کنید.")
+
+
+async def cb_subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer("✅ اشتراک فعال شد!")
+    telegram_id = query.from_user.id
+    await db.set_subscription(telegram_id, True)
+    # Remove the subscribe button from the message
+    await query.edit_message_reply_markup(reply_markup=None)
+    await query.message.reply_text(
+        "🔔 *اشتراک روزانه فعال شد!*\n\n"
+        "هر روز ساعت *۲۱:۰۰ به وقت تهران* گزارش حجم سرویس شما ارسال می‌شود.\n\n"
+        "برای لغو: /unsubscribe",
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -336,12 +399,29 @@ async def cmd_yesterday(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def cmd_subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_id = update.effective_user.id
     if not await db.get_user(telegram_id):
-        await update.message.reply_text("ابتدا با /setcredentials اطلاعات ورود را ثبت کنید.")
+        await update.message.reply_text(
+            "⚠️ ابتدا اطلاعات ورود را ثبت کنید.\n\n👉 /setcredentials"
+        )
         return
+
+    subscribed = await db.get_subscribed_users()
+    if telegram_id in subscribed:
+        await update.message.reply_text(
+            "✅ شما قبلاً عضو اطلاع‌رسانی روزانه هستید.\n\n"
+            "هر روز ساعت ۲۱:۰۰ تهران گزارش دریافت می‌کنید.\n"
+            "برای لغو: /unsubscribe"
+        )
+        return
+
     await db.set_subscription(telegram_id, True)
     await update.message.reply_text(
-        "✅ اشتراک فعال شد!\n"
-        "هر روز ساعت *۲۱:۰۰ به وقت تهران* گزارش حجم برای شما ارسال می‌شود.",
+        "🔔 *اشتراک روزانه فعال شد!*\n\n"
+        "هر روز ساعت *۲۱:۰۰ به وقت تهران* گزارش حجم برای شما ارسال می‌شود.\n"
+        "گزارش شامل:\n"
+        "  • حجم باقی‌مانده\n"
+        "  • مصرف دیروز\n"
+        "  • روزهای باقی‌مانده تا انقضا\n\n"
+        "برای لغو: /unsubscribe",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -439,6 +519,7 @@ def main() -> None:
     app.add_handler(CommandHandler("forget", cmd_forget))
     app.add_handler(CallbackQueryHandler(cb_remove_yes, pattern=f"^{CB_REMOVE_YES}$"))
     app.add_handler(CallbackQueryHandler(cb_remove_no,  pattern=f"^{CB_REMOVE_NO}$"))
+    app.add_handler(CallbackQueryHandler(cb_subscribe,  pattern=f"^{CB_SUBSCRIBE}$"))
 
     # ۲۱:۰۰ تهران = ۱۷:۳۰ UTC
     app.job_queue.run_daily(
