@@ -13,7 +13,6 @@ Commands
 /forget         — حذف کامل اطلاعات
 """
 
-import asyncio
 import logging
 import os
 from datetime import time as dt_time
@@ -409,14 +408,16 @@ async def daily_push(context: ContextTypes.DEFAULT_TYPE) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+async def _post_init(app: Application) -> None:
+    await db.init_db()
+
+
 def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set in .env")
 
-    asyncio.run(db.init_db())
-
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(_post_init).build()
 
     creds_conv = ConversationHandler(
         entry_points=[CommandHandler("setcredentials", cmd_setcredentials)],
