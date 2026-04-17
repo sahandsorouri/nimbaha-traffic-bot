@@ -56,6 +56,23 @@ CB_SUBSCRIBE  = "subscribe_now"
 # Helpers
 # ---------------------------------------------------------------------------
 
+TIPS_IPHONE  = "https://telegra.ph/iPhone-Data-Management-04-06"
+TIPS_ANDROID = "https://telegra.ph/Android-Data-Management-04-06"
+
+TIPS_TEXT = (
+    "\n\n💡 *نکات صرفه‌جویی در حجم:*\n"
+    f"📱 [راهنمای آیفون]({TIPS_IPHONE})\n"
+    f"🤖 [راهنمای اندروید]({TIPS_ANDROID})"
+)
+
+
+def _is_low(remaining: str) -> bool:
+    """True if remaining traffic is below 1 GB."""
+    from scraper import _to_bytes
+    b = _to_bytes(remaining)
+    return b is not None and 0 < b < 1 * 1024**3
+
+
 def _progress_bar(remaining: str, total: str) -> str:
     """Return a 10-block bar like ██████░░░░ 60%"""
     from scraper import _to_bytes
@@ -171,8 +188,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "📅 /yesterday — مصرف دیروز\n"
         "🔐 /trust — توضیح بیشتر درباره امنیت\n"
         "🗑️ /forget — حذف کامل اطلاعات\n\n"
-        "برای شروع، /setcredentials را بزنید.",
+        "برای شروع، /setcredentials را بزنید."
+        + TIPS_TEXT,
         parse_mode=ParseMode.MARKDOWN,
+        disable_web_page_preview=True,
     )
 
 
@@ -301,16 +320,26 @@ async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if info.is_zero:
         text += "\n\n⚠️ *این سرویس حجمی ندارد!*\nمی‌خواهید آن را از بات حذف کنید؟"
-        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_zero_keyboard())
+        text += TIPS_TEXT
+        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=_zero_keyboard(),
+                            disable_web_page_preview=True)
         return
+
+    # Low traffic warning (< 1 GB)
+    if _is_low(info.remaining):
+        text += f"\n\n⚠️ *حجم کمی باقی مانده!*{TIPS_TEXT}"
 
     # Offer daily subscription if not already subscribed
     subscribed_ids = await db.get_subscribed_users()
     if telegram_id not in subscribed_ids:
         text += "\n\n🔔 برای گزارش خودکار روزانه دکمه زیر را بزنید:"
-        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=_subscribe_keyboard())
+        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=_subscribe_keyboard(),
+                            disable_web_page_preview=True)
     else:
-        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+        await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN,
+                            disable_web_page_preview=True)
 
 
 # ---------------------------------------------------------------------------
@@ -471,10 +500,19 @@ async def daily_push(context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             if info.is_zero:
                 text += "\n\n⚠️ *این سرویس حجمی ندارد!*\nمی‌خواهید آن را حذف کنید؟"
+                text += TIPS_TEXT
                 await context.bot.send_message(
                     telegram_id, text,
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=_zero_keyboard(),
+                    disable_web_page_preview=True,
+                )
+            elif _is_low(info.remaining):
+                text += f"\n\n⚠️ *حجم کمی باقی مانده!*{TIPS_TEXT}"
+                await context.bot.send_message(
+                    telegram_id, text,
+                    parse_mode=ParseMode.MARKDOWN,
+                    disable_web_page_preview=True,
                 )
             else:
                 await context.bot.send_message(
