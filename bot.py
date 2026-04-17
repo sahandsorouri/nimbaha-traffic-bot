@@ -375,21 +375,21 @@ async def cmd_yesterday(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await msg.edit_text(f"⚠️ خطا در دریافت اطلاعات: {e}")
         return
 
-    if len(days) < 2:
-        await msg.edit_text(
-            "هنوز اطلاعات کافی برای دیروز وجود ندارد.\n"
-            "معمولاً بعد از ۲۴ ساعت استفاده از سرویس نمایش داده می‌شود."
-        )
+    if not days:
+        await msg.edit_text("هیچ داده مصرفی برای این سرویس ثبت نشده.")
         return
 
-    yesterday = days[1]   # index 0 = today, index 1 = yesterday
-    await msg.edit_text(
-        f"📅 *مصرف دیروز* ({yesterday.date})\n\n"
-        f"📥 دانلود  : {yesterday.download}\n"
-        f"📤 آپلود   : {yesterday.upload}\n"
-        f"📊 کل مصرف : *{yesterday.consume}*",
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    # Show last 3 days with actual dates (API may not have today's data yet)
+    lines = ["📅 *آخرین روزهای مصرف*\n"]
+    for d in days[:3]:
+        lines.append(
+            f"\n🗓 *{d.date}*\n"
+            f"  📥 دانلود : {d.download}\n"
+            f"  📤 آپلود  : {d.upload}\n"
+            f"  📊 کل     : *{d.consume}*"
+        )
+
+    await msg.edit_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
 # ---------------------------------------------------------------------------
@@ -459,10 +459,10 @@ async def daily_push(context: ContextTypes.DEFAULT_TYPE) -> None:
 
         try:
             days = await fetch_daily_usage(info.auth_token)
-            if len(days) >= 2:
-                y = days[1]
+            if days:
+                y = days[0]  # most recent day with actual data
                 text += (
-                    f"\n\n📅 *مصرف دیروز* ({y.date})\n"
+                    f"\n\n📅 *آخرین روز مصرف* ({y.date})\n"
                     f"📥 {y.download}  📤 {y.upload}  📊 *{y.consume}*"
                 )
         except Exception:

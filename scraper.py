@@ -67,13 +67,16 @@ _UNIT = {"b": 1, "kb": 1024, "mb": 1024**2, "gb": 1024**3, "tb": 1024**4}
 
 
 def _to_bytes(s: str) -> float | None:
-    """Parse "4.73 GB" → bytes as float.  Returns None on failure."""
-    m = re.match(r"([\d.,]+)\s*([a-zA-Z]+)?", s.strip())
+    """Parse "4.73 GB" or "-90 MB" → bytes as float.  Returns None on failure."""
+    s = s.strip()
+    negative = s.startswith("-")
+    m = re.match(r"-?([\d.,]+)\s*([a-zA-Z]+)?", s)
     if not m:
         return None
     num  = float(m.group(1).replace(",", "."))
     unit = (m.group(2) or "b").lower()
-    return num * _UNIT.get(unit, 1)
+    val  = num * _UNIT.get(unit, 1)
+    return -val if negative else val
 
 
 def _fmt_bytes(b: float) -> str:
@@ -89,13 +92,15 @@ def _calc_used(total: str, remaining: str) -> str:
     r = _to_bytes(remaining)
     if t is None or r is None:
         return "N/A"
-    diff = max(0.0, t - r)
-    return _fmt_bytes(diff)
+    # If remaining is negative the user went over quota — used = total + overage
+    diff = t - r  # e.g. 8 GB - (-90 MB) = 8.09 GB
+    return _fmt_bytes(max(0.0, diff))
 
 
 def _is_zero(remaining: str) -> bool:
+    """True when remaining is 0 or negative (over quota)."""
     b = _to_bytes(remaining)
-    return b is not None and b == 0
+    return b is not None and b <= 0
 
 
 # ---------------------------------------------------------------------------
