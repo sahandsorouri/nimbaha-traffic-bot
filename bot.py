@@ -320,17 +320,18 @@ async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if info.is_zero:
         text += "\n\n⚠️ *این سرویس حجمی ندارد!*\nمی‌خواهید آن را از بات حذف کنید؟"
-        text += TIPS_TEXT
+
+    if _is_low(info.remaining):
+        text += "\n\n⚠️ *حجم کمی باقی مانده!*"
+
+    text += TIPS_TEXT
+
+    if info.is_zero:
         await msg.edit_text(text, parse_mode=ParseMode.MARKDOWN,
                             reply_markup=_zero_keyboard(),
                             disable_web_page_preview=True)
         return
 
-    # Low traffic warning (< 1 GB)
-    if _is_low(info.remaining):
-        text += f"\n\n⚠️ *حجم کمی باقی مانده!*{TIPS_TEXT}"
-
-    # Offer daily subscription if not already subscribed
     subscribed_ids = await db.get_subscribed_users()
     if telegram_id not in subscribed_ids:
         text += "\n\n🔔 برای گزارش خودکار روزانه دکمه زیر را بزنید:"
@@ -500,24 +501,17 @@ async def daily_push(context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             if info.is_zero:
                 text += "\n\n⚠️ *این سرویس حجمی ندارد!*\nمی‌خواهید آن را حذف کنید؟"
-                text += TIPS_TEXT
-                await context.bot.send_message(
-                    telegram_id, text,
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_markup=_zero_keyboard(),
-                    disable_web_page_preview=True,
-                )
             elif _is_low(info.remaining):
-                text += f"\n\n⚠️ *حجم کمی باقی مانده!*{TIPS_TEXT}"
-                await context.bot.send_message(
-                    telegram_id, text,
-                    parse_mode=ParseMode.MARKDOWN,
-                    disable_web_page_preview=True,
-                )
-            else:
-                await context.bot.send_message(
-                    telegram_id, text, parse_mode=ParseMode.MARKDOWN
-                )
+                text += "\n\n⚠️ *حجم کمی باقی مانده!*"
+
+            text += TIPS_TEXT
+
+            await context.bot.send_message(
+                telegram_id, text,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=_zero_keyboard() if info.is_zero else None,
+                disable_web_page_preview=True,
+            )
         except Exception as e:
             logger.warning("Could not send to %s: %s", telegram_id, e)
 
