@@ -554,11 +554,12 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(cb_subscribe,  pattern=f"^{CB_SUBSCRIBE}$"))
 
     # ۲۱:۰۰ تهران = ۱۷:۳۰ UTC
-    app.job_queue.run_daily(
-        daily_push,
-        time=dt_time(hour=17, minute=30, tzinfo=pytz.utc),
-        name="daily_traffic_push",
-    )
+    # غیرفعال — سایت نیمبها داخلی شده، تا اطلاع ثانوی متوقف است
+    # app.job_queue.run_daily(
+    #     daily_push,
+    #     time=dt_time(hour=17, minute=30, tzinfo=pytz.utc),
+    #     name="daily_traffic_push",
+    # )
 
     logger.info("Bot started. Polling…")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
