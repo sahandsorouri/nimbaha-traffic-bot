@@ -41,8 +41,10 @@ OPTIONS = {
     "includes": [
         "AppKit",
         "Foundation",
+        "WebKit",
         "PyObjCTools.AppHelper",
         "PyObjCTools.Conversion",
+        "auth_session",
     ],
     # Keep standalone/semi-standalone builds small; site-packages has lots of unrelated libs.
     "excludes": [

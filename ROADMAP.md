@@ -11,7 +11,7 @@ A macOS menu bar app that shows claude.ai usage (5-hour session + weekly) at a g
 
 ### App behavior
 - `claude_usage_bar.py` — rumps menu bar app (`LSUIElement`, no Dock icon).
-- **Auth (temporary):** reads **Brave** cookies via `browser_cookie3.brave(domain_name="claude.ai")`.
+- **Auth (Phase 2 ✅):** in-app **WKWebView login** → session cookie stored in an **app-scoped file** `~/Library/Application Support/ClaudeUsageBar/session.json` (owner-only `0600`), via `auth_session.py`. No macOS Keychain (user preference: no system prompts, self-contained). Brave (`browser_cookie3`) is an **opt-in fallback only** (Account ▸ Use Brave cookies).
 - **API:** `/api/bootstrap` → `org_id` (cached), then `/api/organizations/{id}/usage` every **120s** via `curl_cffi` (Chrome impersonation).
 - **Cache:** `~/.claude/usage_bar_cache.json`
 - **Config:** `~/Library/Application Support/ClaudeUsageBar/config.json`
@@ -48,6 +48,7 @@ Text modes (percent / dual / verbose) are not colored.
 
 ### Repo layout
 - Menu bar app at repo root.
+- `auth_session.py` — file-backed session storage + WKWebView login (used by the app); also runnable standalone (`python3.11 auth_session.py login|status|delete`).
 - Legacy nimbaha Telegram bot → `legacy/` (not imported by the app).
 - `login_once.py` — optional Playwright helper (not wired).
 - `fetch_usage.py` — small API test script.
@@ -63,7 +64,7 @@ Text modes (percent / dual / verbose) are not colored.
 | Topic | Decision |
 |-------|----------|
 | **Distribution** | Unsigned DMG first (right-click→Open Gatekeeper workaround). |
-| **Login (target)** | WKWebView login → capture **only** claude.ai cookies → store in **app-scoped Keychain**. Stop reading the user's browser profile by default. See `AUTH.md`. |
+| **Login** | WKWebView login → capture **only** claude.ai cookies → store in an **app-scoped file** (`Application Support/ClaudeUsageBar/session.json`, `0600`). Keychain was tried but dropped (user preference: no system prompts). Stop reading the user's browser profile by default. See `AUTH.md`. |
 | **Login (rejected for now)** | `ASWebAuthenticationSession` / default-browser OAuth — best UX in theory, but Anthropic does not expose OAuth for third-party claude.ai usage APIs; Safari cookies are not returned to native apps. |
 | **Menu bar** | User-configurable display modes ✅ |
 | **Build** | Semi-standalone py2app via `scripts/build_app.sh` |
@@ -84,18 +85,16 @@ Text modes (percent / dual / verbose) are not colored.
 - [x] Ring color thresholds: green ≤50%, orange 51–74%, red ≥75%.
 - [x] Initial fetch shortly after launch.
 
-## Phase 2 — Privacy-first login + secure storage
-**Status:** Not started — design reviewed; see `AUTH.md`.
+## Phase 2 — Privacy-first login + app-scoped storage ✅ DONE
+**Status:** Done — WKWebView login validated end-to-end (live 200 from bootstrap + usage), then integrated. See `AUTH.md`.
 
-Recommended approach: **WKWebView PoC first**, then wire into main app.
-
-- [ ] PoC: WKWebView login window; log cookie **names** only; store session in Keychain.
-- [ ] Native WKWebView login in main app (PyObjC; already a dependency).
-- [ ] On login, read **only** claude.ai cookies from `WKHTTPCookieStore`.
-- [ ] Store session cookie in app-scoped macOS Keychain (Security framework or `keyring`).
-- [ ] `fetch_*` read cookie from Keychain; expired → **Re-login** menu item.
-- [ ] First-run: no credential → auto-open login window.
-- [ ] Optional fallbacks only (not default): manual paste, opt-in Brave import via `browser_cookie3`.
+- [x] Native WKWebView login in main app via `auth_session.py` (`present_login()` runs inside the rumps event loop).
+- [x] On login, read **only** claude.ai cookies from `WKHTTPCookieStore`.
+- [x] Store session in an **app-scoped file** (`Application Support/ClaudeUsageBar/session.json`, mode `0600`). **No Keychain** (user preference: no system prompts, self-contained).
+- [x] `fetch_*` read session from the file; **Account ▸ Log in to Claude…** re-login menu item.
+- [x] First-run: no credential → auto-open login window once; confirmation notification on success.
+- [x] Opt-in Brave import fallback (Account ▸ Use Brave cookies), off by default.
+- [ ] Manual paste session token fallback — deferred (not required for default flow).
 
 ## Phase 3 — Packaging & unsigned DMG
 **Status:** Partially done.
@@ -123,7 +122,7 @@ Recommended approach: **WKWebView PoC first**, then wire into main app.
 ## Suggested order
 
 ```
-Phase 0 ✅ → Phase 1 ✅ → Phase 2 (PoC → integrate) → Phase 3 (DMG) → Phase 4 → Phase 5
+Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 (DMG) → Phase 4 → Phase 5
 ```
 
 **Alternative:** Phase 3 DMG now with Brave auth, Phase 2 later — OK for quick sharing, not ideal long-term.

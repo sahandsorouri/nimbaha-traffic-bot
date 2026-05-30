@@ -1,6 +1,8 @@
 #!/usr/bin/env python3.11
 """
-Claude usage menu bar — reads directly from claude.ai API via Brave cookies.
+Claude usage menu bar — reads directly from the claude.ai API.
+Auth: an in-app WKWebView login stores the session in the macOS Keychain
+(see auth_keychain.py). Brave cookie import is an opt-in fallback only.
 No calibration needed. Exact same data as claude.ai/settings/usage.
 
 Optional: set CLAUDE_USAGE_BAR_TEST_MENU=1 to add menu items that fire the
@@ -14,12 +16,13 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-import browser_cookie3
 import rumps
 from AppKit import NSBezierPath, NSColor, NSImage
 from curl_cffi import requests as cf_requests
 from Foundation import NSMakePoint, NSMakeRect, NSMakeSize
 from PyObjCTools import AppHelper
+
+import auth_session as auth
 
 CACHE_FILE = Path.home() / ".claude" / "usage_bar_cache.json"
 CONFIG_FILE = (
@@ -32,8 +35,32 @@ DEFAULT_MODE = "ring"
 
 
 def brave_cookies():
+    # Optional opt-in fallback only; imported lazily so the app does not depend
+    # on browser_cookie3 unless the user explicitly enables Brave import.
+    import browser_cookie3
+
     cj = browser_cookie3.brave(domain_name="claude.ai")
     return {c.name: c.value for c in cj}
+
+
+def get_cookies(config: dict) -> dict | None:
+    """Cookie source: Keychain session first; Brave only if opted in."""
+    cookies = auth.session_cookies()
+    if cookies:
+        return cookies
+    if config.get("use_brave_fallback"):
+        try:
+            return brave_cookies()
+        except Exception:
+            return None
+    return None
+
+
+def clear_org_cache() -> None:
+    try:
+        CACHE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def fetch_org_id(cookies) -> str | None:
@@ -180,6 +207,8 @@ class App(rumps.App):
         self._reset_timer: threading.Timer | None = None
         self._weekly_cooldown_until: datetime | None = None
         self._weekly_reset_timer: threading.Timer | None = None
+        self._login_in_progress = False
+        self._prompted_login = False
 
         self._config = load_config()
         mode = self._config.get("display_mode", DEFAULT_MODE)
@@ -197,6 +226,7 @@ class App(rumps.App):
             rumps.separator,
             rumps.MenuItem("Refresh", callback=self.do_refresh),
             self._build_display_menu(),
+            self._build_account_menu(),
             self._ts,
         ]
         if os.environ.get("CLAUDE_USAGE_BAR_TEST_MENU"):
@@ -245,6 +275,57 @@ class App(rumps.App):
             self._do_fetch(force=True)
 
         return _cb
+
+    def _build_account_menu(self):
+        parent = rumps.MenuItem("Account")
+        parent.add(rumps.MenuItem("Log in to Claude…", callback=self.do_login))
+        brave = rumps.MenuItem(
+            "Use Brave cookies (fallback)", callback=self._toggle_brave
+        )
+        brave.state = 1 if self._config.get("use_brave_fallback") else 0
+        self._brave_item = brave
+        parent.add(brave)
+        return parent
+
+    def _toggle_brave(self, _):
+        enabled = not bool(self._config.get("use_brave_fallback"))
+        self._config["use_brave_fallback"] = enabled
+        save_config(self._config)
+        self._brave_item.state = 1 if enabled else 0
+        self._do_fetch(force=True)
+
+    def do_login(self, _=None):
+        """Open the WKWebView login window (re-login safe)."""
+        if self._login_in_progress:
+            return
+        self._login_in_progress = True
+        self._set_status_text("…")
+        try:
+            auth.present_login(on_complete=self._on_login_done)
+            # Accessory (LSUIElement) apps must be activated to show a window.
+            from AppKit import NSApplication
+
+            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        except Exception:
+            self._login_in_progress = False
+            self._set_status_text("!")
+
+    def _on_login_done(self, success: bool):
+        self._login_in_progress = False
+        if success:
+            # A fresh session may belong to a different account; drop cached org.
+            clear_org_cache()
+            self._org_id = None
+            self._notify("Signed in to Claude", "Usage will appear in the menu bar.")
+            self._do_fetch(force=True)
+        else:
+            self._render_logged_out()
+
+    def _render_logged_out(self):
+        self._set_status_text("Log in")
+        self._s1.title = "Not logged in — open Account ▸ Log in to Claude…"
+        self._w1.title = ""
+        self._ts.title = "no session"
 
     def _status_button(self):
         try:
@@ -452,8 +533,19 @@ class App(rumps.App):
             self._on_reset_fired()
             return
 
+        if self._login_in_progress:
+            return
+
+        cookies = get_cookies(self._config)
+        if not cookies:
+            self._render_logged_out()
+            # First run with no stored session: open the login window once.
+            if not self._prompted_login:
+                self._prompted_login = True
+                self.do_login()
+            return
+
         try:
-            cookies = brave_cookies()
             self._org_id = self._org_id or fetch_org_id(cookies)
             if not self._org_id:
                 self._set_status_text("!")
