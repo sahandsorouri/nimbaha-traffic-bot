@@ -21,6 +21,8 @@ APP = ["claude_usage_bar.py"]
 
 OPTIONS = {
     "argv_emulation": False,
+    # Finder-launched GUI apps get a minimal env; this helps py2app find site-packages.
+    "emulate_shell_environment": True,
     "plist": {
         "CFBundleName": "Claude Usage Bar",
         "CFBundleDisplayName": "Claude Usage Bar",
@@ -41,6 +43,27 @@ OPTIONS = {
         "Foundation",
         "PyObjCTools.AppHelper",
         "PyObjCTools.Conversion",
+    ],
+    # Keep standalone/semi-standalone builds small; site-packages has lots of unrelated libs.
+    "excludes": [
+        "numpy",
+        "scipy",
+        "pandas",
+        "matplotlib",
+        "PIL",
+        "tkinter",
+        "test",
+        "unittest",
+        "lib2to3",
+        "pydoc",
+        "nose",
+        "pytest",
+        "IPython",
+        "jupyter",
+        "sphinx",
+        "django",
+        "flask",
+        "sqlalchemy",
     ],
 }
 

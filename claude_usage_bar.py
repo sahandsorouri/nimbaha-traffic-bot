@@ -130,9 +130,9 @@ def save_config(cfg: dict) -> None:
 
 
 def _ring_color(value: float):
-    if value >= 90:
+    if value >= 75:
         return NSColor.systemRedColor()
-    if value >= 70:
+    if value > 50:
         return NSColor.systemOrangeColor()
     return NSColor.systemGreenColor()
 
