@@ -23,6 +23,8 @@ OPTIONS = {
     "argv_emulation": False,
     # Finder-launched GUI apps get a minimal env; this helps py2app find site-packages.
     "emulate_shell_environment": True,
+    # Custom app icon (run `python3.11 make_icon.py` to regenerate AppIcon.icns).
+    "iconfile": "AppIcon.icns",
     "plist": {
         "CFBundleName": "Claude Usage Bar",
         "CFBundleDisplayName": "Claude Usage Bar",

@@ -96,16 +96,17 @@ Text modes (percent / dual / verbose) are not colored.
 - [x] Opt-in Brave import fallback (Account ▸ Use Brave cookies), off by default.
 - [ ] Manual paste session token fallback — deferred (not required for default flow).
 
-## Phase 3 — Packaging & unsigned DMG
-**Status:** Partially done.
+## Phase 3 — Packaging & unsigned DMG ✅ DONE (except fully-standalone)
+**Status:** Done — custom icon, drag-to-Applications DMG, and README shipped.
 
 - [x] Semi-standalone py2app build that launches from Finder (`scripts/build_app.sh`).
 - [x] `LSUIElement`, bundle id `com.threehandss.claude-usage-bar`.
 - [x] `emulate_shell_environment` + package `excludes` in `setup.py`.
-- [ ] Custom app icon (still default Python/py2app icon).
-- [ ] Build `.dmg` with `create-dmg` (drag-to-Applications).
-- [ ] README: install, right-click→Open, update/rebuild instructions, auth requirements.
+- [x] Custom app icon — `make_icon.py` renders `AppIcon.icns` (coral squircle + usage ring); wired via `setup.py` `iconfile`.
+- [x] Build `.dmg` (drag-to-Applications) — `scripts/build_dmg.sh` uses `hdiutil` (no `create-dmg` dependency). Output: `dist/Claude-Usage-Bar.dmg` (~12 MB), checksum-verified.
+- [x] README: install, right-click→Open, login/auth notes, rebuild/DMG instructions, troubleshooting.
 - [ ] Fully standalone build (no system Python dependency) — semi-standalone still uses system Python framework.
+- [ ] Optional polish: custom DMG window background + icon layout (`create-dmg`/styled `.DS_Store`).
 
 ## Phase 4 — Polish & reliability
 - [ ] Configurable refresh interval (Refresh now exists ✅).
@@ -122,7 +123,7 @@ Text modes (percent / dual / verbose) are not colored.
 ## Suggested order
 
 ```
-Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 (DMG) → Phase 4 → Phase 5
+Phase 0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Phase 3 ✅ → Phase 4 → Phase 5
 ```
 
 **Alternative:** Phase 3 DMG now with Brave auth, Phase 2 later — OK for quick sharing, not ideal long-term.
