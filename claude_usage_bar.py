@@ -301,17 +301,40 @@ class App(rumps.App):
         self._login_in_progress = True
         self._set_status_text("…")
         try:
-            auth.present_login(on_complete=self._on_login_done)
-            # Accessory (LSUIElement) apps must be activated to show a window.
-            from AppKit import NSApplication
+            # LSUIElement apps run as "accessory" and cannot bring a normal
+            # window to the foreground. Temporarily become a regular app so the
+            # login window actually appears and can take focus; restored to
+            # accessory in _on_login_done.
+            from AppKit import (
+                NSApplication,
+                NSApplicationActivationPolicyRegular,
+            )
 
-            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            app = NSApplication.sharedApplication()
+            app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+            auth.present_login(on_complete=self._on_login_done)
+            app.activateIgnoringOtherApps_(True)
         except Exception:
             self._login_in_progress = False
+            self._restore_accessory_policy()
             self._set_status_text("!")
+
+    def _restore_accessory_policy(self):
+        try:
+            from AppKit import (
+                NSApplication,
+                NSApplicationActivationPolicyAccessory,
+            )
+
+            NSApplication.sharedApplication().setActivationPolicy_(
+                NSApplicationActivationPolicyAccessory
+            )
+        except Exception:
+            pass
 
     def _on_login_done(self, success: bool):
         self._login_in_progress = False
+        self._restore_accessory_policy()
         if success:
             # A fresh session may belong to a different account; drop cached org.
             clear_org_cache()
